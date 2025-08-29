@@ -23,10 +23,10 @@ async function init() {
       recursive: true,
     });
 
-    for(const filePath of distFolderContents){
-        if(fs.lstatSync(filePath).isDirectory) continue;
-
-        
+    for (const filePath of distFolderContents) {
+      if (fs.lstatSync(filePath).isDirectory) continue;
     }
   });
 }
+
+// test
