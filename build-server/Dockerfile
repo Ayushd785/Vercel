@@ -1,15 +1,27 @@
 FROM ubuntu:focal
 
-RUN apt-get update
-RUN apt-get install -y curl
-RUN curl -sL https://deb.nodesource.com/setup_18.x | bash -
-RUN apt-get upgrade -y
-RUN apt-get install -y nodejs
+# Install curl & git
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get install git -y
+# Install Node.js 20 (instead of 18)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g npm@latest
 
+# Set working directory
 WORKDIR /home/app
 
-COPY main.sh main.sh
+# Copy required files
+COPY main.sh script.js package*.json ./
 
-ENTRYPOINT [ "/home/app/main.sh" ]
+# Install project dependencies
+RUN npm install
+
+# Make scripts executable
+RUN chmod +x main.sh script.js
+
+# Start script
+ENTRYPOINT ["/home/app/main.sh"]
