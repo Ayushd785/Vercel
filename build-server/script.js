@@ -15,13 +15,22 @@ const s3Client = new S3Client({
 const PROJECT_ID = process.env.PROJECT_ID;
 
 async function init() {
-  console.log("Executing script.js");
+  console.log("🚀 Executing script.js");
+  console.log("📁 Project ID:", PROJECT_ID);
+  console.log("🪣 Bucket:", "vercel-clone-ayush-0704");
+
   const outDirPath = path.join(__dirname, "output");
 
+  if (!fs.existsSync(outDirPath)) {
+    console.error("❌ Output directory does not exist:", outDirPath);
+    return;
+  }
+
+  console.log("📦 Installing dependencies and building project...");
   const p = exec(`cd ${outDirPath} && npm install && npm run build`);
 
   p.stdout.on("data", function (data) {
-    console.log(data.toString()); // Fixed toString()
+    console.log(data.toString());
   });
 
   p.stderr.on("data", function (data) {
@@ -29,23 +38,88 @@ async function init() {
   });
 
   p.on("close", async function (code) {
-    console.log(`Build process exited with code ${code}`);
+    console.log(`🔨 Build process exited with code ${code}`);
 
     if (code !== 0) {
-      console.error("Build failed");
+      console.error("❌ Build failed");
       return;
     }
 
-    console.log("Build complete");
-    const distFolderPath = path.join(outDirPath, "dist");
+    console.log("✅ Build complete");
 
-    // Check if dist folder exists
+    // Check for common build output directories
+    let distFolderPath = path.join(outDirPath, "dist");
+
     if (!fs.existsSync(distFolderPath)) {
-      console.error("Dist folder does not exist at path:", distFolderPath);
-      return;
+      // Try 'build' folder (common for Create React App)
+      distFolderPath = path.join(outDirPath, "build");
+
+      if (!fs.existsSync(distFolderPath)) {
+        console.error("❌ Neither 'dist' nor 'build' folder exists");
+        console.log("📁 Available directories:", fs.readdirSync(outDirPath));
+        return;
+      } else {
+        console.log("📁 Found 'build' folder, using it as output directory");
+      }
+    } else {
+      console.log("📁 Found 'dist' folder, using it as output directory");
     }
 
-    console.log("Starting upload to S3...");
+    console.log("✏️ Fixing HTML asset paths...");
+
+    // Function to fix HTML and JS asset paths
+    function fixAssetPaths(distPath) {
+      // Fix HTML paths
+      const indexHtmlPath = path.join(distPath, "index.html");
+
+      if (fs.existsSync(indexHtmlPath)) {
+        let htmlContent = fs.readFileSync(indexHtmlPath, "utf8");
+
+        console.log(
+          "📄 Original HTML snippet:",
+          htmlContent.substring(0, 200) + "..."
+        );
+
+        // Convert absolute paths to relative paths
+        htmlContent = htmlContent
+          .replace(/href="\/([^"]+)"/g, 'href="./$1"') // Fix CSS and other href links
+          .replace(/src="\/([^"]+)"/g, 'src="./$1"'); // Fix JS and other src links
+
+        // Write the fixed HTML back
+        fs.writeFileSync(indexHtmlPath, htmlContent);
+        console.log("✅ Fixed paths in index.html");
+      }
+
+      // Fix JS files that might contain asset references
+      const assetsDir = path.join(distPath, "assets");
+      if (fs.existsSync(assetsDir)) {
+        const jsFiles = fs
+          .readdirSync(assetsDir)
+          .filter((file) => file.endsWith(".js"));
+
+        jsFiles.forEach((jsFile) => {
+          const jsFilePath = path.join(assetsDir, jsFile);
+          let jsContent = fs.readFileSync(jsFilePath, "utf8");
+
+          // Fix asset paths in JavaScript files
+          const originalContent = jsContent;
+          jsContent = jsContent.replace(
+            /["']\/([^"']+\.(svg|png|jpg|jpeg|gif|ico))["']/g,
+            '"./$1"'
+          );
+
+          if (jsContent !== originalContent) {
+            fs.writeFileSync(jsFilePath, jsContent);
+            console.log(`✅ Fixed asset paths in ${jsFile}`);
+          }
+        });
+      }
+    }
+
+    // Fix the HTML paths
+    fixAssetPaths(distFolderPath);
+
+    console.log("📤 Starting upload to S3...");
 
     // Recursive function to upload files
     async function uploadDirectory(dirPath, s3Prefix = "") {
@@ -53,7 +127,7 @@ async function init() {
 
       for (const item of items) {
         const fullPath = path.join(dirPath, item);
-        const relativeS3Path = path.join(s3Prefix, item);
+        const relativeS3Path = path.posix.join(s3Prefix, item); // ✅ always forward slashes
 
         if (fs.lstatSync(fullPath).isDirectory()) {
           // If it's a directory, recursively upload its contents
@@ -65,7 +139,7 @@ async function init() {
             const contentType = mime.lookup(item) || "application/octet-stream";
 
             const command = new PutObjectCommand({
-              Bucket: "vercel-ayush-clone",
+              Bucket: "vercel-clone-ayush-0704",
               Key: `__outputs/${PROJECT_ID}/${relativeS3Path}`,
               Body: fileStream,
               ContentType: contentType,
@@ -82,7 +156,10 @@ async function init() {
 
     try {
       await uploadDirectory(distFolderPath);
-      console.log("🎉 All files uploaded successfully!");
+      console.log("🎉 All files uploaded successfully to S3!");
+      console.log(
+        `🌐 Preview URL: https://d167957v6g2q0.cloudfront.net/${PROJECT_ID}/`
+      );
     } catch (error) {
       console.error("💥 Upload process failed:", error);
     }
